@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset='utf-8' />
+    <title>My Farm</title>
+    <meta name='viewport' content='initial-scale=1,maximum-scale=1,user-scalable=no' />
+    <script src='https://api.tiles.mapbox.com/mapbox-gl-js/v1.0.0/mapbox-gl.js'></script>
+    <link href='https://api.tiles.mapbox.com/mapbox-gl-js/v1.0.0/mapbox-gl.css' rel='stylesheet' />
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+        }
+
+        #map {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 100%;
+        }
+    </style>
+</head>
+
+<body>
+    <style>
+        /* .coordinates {
+            background: rgba(0, 0, 0, 0.5);
+            color: #fff;
+            position: absolute;
+            bottom: 40px;
+            left: 10px;
+            padding: 5px 10px;
+            margin: 0;
+            font-size: 11px;
+            line-height: 18px;
+            border-radius: 3px;
+            display: none;
+        } */
+        /* .calculation-box {
+            height: 75px;
+            width: 150px;
+            position: absolute;
+            bottom: 40px;
+            left: 10px;
+            background-color: rgba(255, 255, 255, .9);
+            padding: 15px;
+            text-align: center;
+        } */
+        .filter-group {
+            font: 12px/20px 'Helvetica Neue', Arial, Helvetica, sans-serif;
+            font-weight: 600;
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1;
+            border-radius: 3px;
+            color: #000000;
+        }
+
+        .filter-group input[type=checkbox]:first-child+label {
+            border-radius: 3px 3px 0 0;
+        }
+
+        .filter-group label:last-child {
+            border-radius: 0 0 3px 3px;
+            border: none;
+        }
+
+        .filter-group input[type=checkbox] {
+            display: none;
+        }
+
+        .filter-group input[type=checkbox]+label {
+            background-color: #B1B1AE;
+            display: block;
+            cursor: pointer;
+            padding: 10px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.25);
+        }
+
+        .filter-group input[type=checkbox]+label {
+            background-color: #B1B1AE;
+            text-transform: capitalize;
+        }
+
+        .filter-group input[type=checkbox]+label:hover,
+        .filter-group input[type=checkbox]:checked+label {
+            background-color: #B1B1AE;
+        }
+
+        .filter-group input[type=checkbox]:checked+label:before {
+            content: '✔';
+            margin-right: 5px;
+        }
+
+        .popup-alert {
+            font-family: 'Open Sans';
+            margin: 0;
+            font-size: 13px;
+            color: red;
+            font-weight: bold;
+        }
+
+        .popup-drone {
+            font-family: 'Open Sans';
+            margin: 0;
+            font-size: 13px;
+            color: Black;
+            font-weight: bold;
+        }
+
+        #menu {
+            position: absolute;
+            background: #fff;
+            padding: 10px;
+            font-family: 'Open Sans', sans-serif;
+        }
+    </style>
+
+    <script src='https://api.tiles.mapbox.com/mapbox.js/plugins/turf/v3.0.11/turf.min.js'></script>
+    <script src='https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.0.9/mapbox-gl-draw.js'></script>
+    <script src='//d3js.org/d3.v3.min.js' charset='utf-8'></script>
+    <link rel='stylesheet' href='https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.0.9/mapbox-gl-draw.css'
+        type='text/css' />
+    <div id='map'></div>
+    <div id='menu'>
+        <input id='2d' type='radio' name='rtoggle' value=0 checked='checked'>
+        <label for='2d'>2D View</label>
+        <input id='3d' type='radio' name='rtoggle' value=60>
+        <label for='3d'>3D View</label>
+    </div>
+    <nav id='filter-group' class='filter-group'></nav>
+    <!-- <div class='calculation-box'>
+        <p>Draw a polygon using the draw tools.</p>
+        <div id='calculated-area'></div>
+    </div> -->
+    <!-- <pre id='coordinates' class='coordinates'></pre> -->
+    <script>
+        // configs
+        mapboxgl.accessToken = 'pk.eyJ1IjoieXpoYW5nMDc4IiwiYSI6ImNqeGxub2M5ZzA4M2Mzb28xZnc0OW5jamcifQ.d9KMqXr46DZQKrUE264IWw';
+        var enableCameraRotation = false;
+        var enableControl = false;
+        var disasterUrl = 'https://yuhaocheung.github.io/growhack/assets/java/disaster.json';
+        var disasterZoneUrl = 'https://yuhaocheung.github.io/growhack/assets/java/disasterZone.json';
+        var palmTreeZoneUrl = 'https://yuhaocheung.github.io/growhack/assets/java/palmTreeZone.json';
+        var riceZoneUrl = 'https://yuhaocheung.github.io/growhack/assets/java/riceZone.json';
+        var droneImageUrl = 'https://yuhaocheung.github.io/growhack/assets/java/drone.png';
+        var plantHopperUrl = 'https://yuhaocheung.github.io/growhack/assets/java/planthopper-1.jpg';
+
+        // variables
+        var defaultZoom = 16;
+        var centerCoords = [109.48100927365363, -7.740353272676501];
+        var defaultPitch = 0;
+        var size = 164;
+        var droneRadius = 0.002;
+        var palmTreeZoneColor = "#33ADF1";
+        var riceZoneColor = "#38F2B6"
+        var disasterZoneColor = "#DC143C";
+        var palmTreeZoneFillOpacity = 0.15
+        var palmTreeZoneFillOpacityHover = 0.4
+        var riceZoneFillOpacity = 0.15
+        var riceZoneFillOpacityHover = 0.4
+        var disasterZoneFillOpacity = 0.25
+        var hoveredStateId = null;
+
+        var filterGroup = document.getElementById('filter-group');
+        // Initialize map
+        var map = new mapboxgl.Map({
+            container: 'map',
+            zoom: defaultZoom, // starting zoom
+            center: centerCoords, // starting position
+            style: 'mapbox://styles/mapbox/satellite-v9',
+            pitch: defaultPitch
+        });
+        var canvas = map.getCanvasContainer();
+
+        // Add zoom and rotation controls to the map.
+        //         map.addControl(new mapboxgl.NavigationControl());
+
+        // add draw control
+        if (enableControl) {
+            var draw = new MapboxDraw({
+                userProperties: true,
+                displayControlsDefault: false,
+                controls: {
+                    polygon: true,
+                    trash: true
+                }
+            });
+            map.addControl(draw);
+
+            map.on('draw.create', updateArea);
+            map.on('draw.delete', updateArea);
+            map.on('draw.update', updateArea);
+        }
+
+        // switch views
+        var layerList = document.getElementById('menu');
+        var inputs = layerList.getElementsByTagName('input');
+
+        function switchLayer(layer) {
+            var pitchValue = layer.target.value;
+            map.setPitch(pitchValue);
+        }
+
+        for (var i = 0; i < inputs.length; i++) {
+            inputs[i].onclick = switchLayer;
+        }
+
+        // draw function
+        function updateArea(e) {
+            var data = draw.getAll();
+            // stringify the JSON
+            console.log(JSON.stringify(data))
+
+            // var answer = document.getElementById('calculated-area');
+            // if (data.features.length > 0) {
+            //     var area = turf.area(data);
+            //     // restrict to area to 2 decimal points
+            //     var rounded_area = Math.round(area * 100) / 100;
+            //     answer.innerHTML = '<p><strong>' + rounded_area + '</strong></p><p>square meters</p>';
+            // } else {
+            //     answer.innerHTML = '';
+            //     if (e.type !== 'draw.delete') alert("Use the draw tools to draw a polygon!");
+            // }
+        }
+
+        // disaster animation
+        var pulsingDot = {
+            width: size,
+            height: size,
+            data: new Uint8Array(size * size * 4),
+
+            onAdd: function () {
+                var canvas = document.createElement('canvas');
+                canvas.width = this.width;
+                canvas.height = this.height;
+                this.context = canvas.getContext('2d');
+            },
+
+            render: function () {
+                var duration = 3500;
+                var t = (performance.now() % duration) / duration;
+
+                var radius = size / 2 * 0.1;
+                var outerRadius = size / 2 * 1.0 * t + radius;
+                var context = this.context;
+
+                // draw outer circle
+                context.clearRect(0, 0, this.width, this.height);
+                context.beginPath();
+                context.arc(this.width / 2, this.height / 2, outerRadius, 0, Math.PI * 2);
+                context.fillStyle = 'rgba(255, 200, 200,' + (1 - t) + ')';
+                context.fill();
+
+                // draw inner circle
+                context.beginPath();
+                context.arc(this.width / 2, this.height / 2, radius, 0, Math.PI * 2);
+                context.fillStyle = 'rgba(255, 100, 100, 1)';
+                context.strokeStyle = 'white';
+                context.lineWidth = 2 + 4 * (1 - t);
+                context.fill();
+                context.stroke();
+
+                // update this image's data with data from the canvas
+                this.data = context.getImageData(0, 0, this.width, this.height).data;
+
+                // keep the map repainting
+                map.triggerRepaint();
+
+                // return `true` to let the map know that the image was updated
+                return true;
+            }
+        };
+
+        // drone flying in circle
+        function pointOnCircle(angle) {
+            return {
+                "type": "Point",
+                "coordinates": [centerCoords[0] + Math.cos(angle) * droneRadius, centerCoords[1] + Math.sin(angle) * droneRadius]
+            };
+        }
+
+        // rotate camera
+        function rotateCamera(timestamp) {
+            // clamp the rotation between 0 -360 degrees
+            // Divide timestamp by 100 to slow rotation to ~10 degrees / sec
+            map.rotateTo((timestamp / 1000) % 360, { duration: 0 });
+            // Request the next frame of the animation.
+            requestAnimationFrame(rotateCamera);
+        }
+
+        map.on('load', function () {
+            // palm tree zone layer
+            d3.json(palmTreeZoneUrl, function (err, data) {
+                if (err) throw err;
+
+                map.addSource('palmTreeZone', {
+                    "type": "geojson",
+                    "data": data
+                });
+
+                map.addLayer({
+                    "id": "palmTreeZone",
+                    "type": "fill",
+                    "source": "palmTreeZone",
+                    "paint": {
+                        "fill-color": palmTreeZoneColor,
+                        "fill-opacity": ["case",
+                            ["boolean", ["feature-state", "hover"], false],
+                            palmTreeZoneFillOpacity,
+                            palmTreeZoneFillOpacityHover
+                        ]
+                    },
+                    "filter": ["==", "cropType", "palmTree"]
+                });
+            });
+
+            // rice zone layer
+            d3.json(riceZoneUrl, function (err, data) {
+                if (err) throw err;
+
+                map.addSource('riceZone', {
+                    "type": "geojson",
+                    "data": data
+                });
+
+                map.addLayer({
+                    "id": "riceZone",
+                    "type": "fill",
+                    "source": "riceZone",
+                    "paint": {
+                        "fill-color": riceZoneColor,
+                        "fill-opacity": ["case",
+                            ["boolean", ["feature-state", "hover"], false],
+                            riceZoneFillOpacity,
+                            riceZoneFillOpacityHover
+                        ]
+                    },
+                    "filter": ["==", "cropType", "rice"]
+                });
+            });
+
+            // disaster zone layer
+            d3.json(disasterZoneUrl, function (err, data) {
+                if (err) throw err;
+
+                map.addLayer({
+                    "id": "disasterZone",
+                    "type": "fill",
+                    "source": {
+                        "type": "geojson",
+                        "data": data
+                    },
+                    "paint": {
+                        "fill-color": disasterZoneColor,
+                        "fill-opacity": disasterZoneFillOpacity
+                    }
+                });
+            });
+
+            // disaster icon
+            map.addImage('pulsing-dot', pulsingDot, { pixelRatio: 2 });
+
+            // disaster layer
+            d3.json(disasterUrl, function (err, data) {
+                if (err) throw err;
+
+                map.addLayer({
+                    "id": "disaster",
+                    "type": "symbol",
+                    "source": {
+                        "type": "geojson",
+                        "data": data
+                    },
+                    "layout": {
+                        "icon-image": "pulsing-dot",
+                        "icon-allow-overlap": true
+                    }
+                });
+            });
+
+            // Add drone source and layer
+            map.addSource('drone', {
+                "type": "geojson",
+                "data": pointOnCircle(0)
+            });
+
+            map.loadImage(droneImageUrl, function (error, image) {
+                if (error) throw error;
+                map.addImage('flying-drone', image);
+                map.addLayer({
+                    "id": "drone",
+                    "source": "drone",
+                    "type": "symbol",
+                    // "paint": {
+                    //     "circle-radius": 10,
+                    //     "circle-color": "#007cbf"
+                    // }
+                    "layout": {
+                        "icon-image": "flying-drone",
+                        "icon-allow-overlap": true,
+                        "icon-size": 0.04
+                    }
+                });
+            });
+
+            // drone animate function
+            function animateMarker(timestamp) {
+                // Update the data to a new position based on the animation timestamp. The
+                // divisor in the expression `timestamp / 1000` controls the animation speed.
+                map.getSource('drone').setData(pointOnCircle(timestamp / 28000));
+
+                // Request the next frame of the animation.
+                requestAnimationFrame(animateMarker);
+            }
+
+            // Start drone animation.
+            animateMarker(0);
+
+            // Start camera animation.
+            if (enableCameraRotation) {
+                rotateCamera(0);
+            }
+
+            // Create a popup for disaster, but don't add it to the map yet.
+            var popup = new mapboxgl.Popup({
+                closeButton: false,
+                closeOnClick: false
+            });
+
+            map.on('mouseenter', 'disaster', function (e) {
+                // Change the cursor style as a UI indicator.
+                map.getCanvas().style.cursor = 'pointer';
+
+                var coordinates = e.features[0].geometry.coordinates.slice();
+                var description = e.features[0].properties.description;
+
+                // Ensure that if the map is zoomed out such that multiple
+                // copies of the feature are visible, the popup appears
+                // over the copy being pointed to.
+                while (Math.abs(e.lngLat.lng - coordinates[0]) > 180) {
+                    coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
+                }
+
+                // Populate the popup and set its coordinates
+                // based on the feature found.
+                popup.setLngLat(coordinates)
+                    .setHTML("<div class='popup-alert'>" + description + "</div><img src=" + plantHopperUrl
+                        + " alt='Plant Hopper Image' style='width:150px;height:150px;'>")
+                    .addTo(map);
+            });
+
+            map.on('mouseleave', 'disaster', function () {
+                map.getCanvas().style.cursor = '';
+                popup.remove();
+            });
+
+            // Create a popup for drones, but don't add it to the map yet.
+            var drone_popup = new mapboxgl.Popup({
+                closeButton: false,
+                closeOnClick: false
+            });
+
+            map.on('mouseenter', 'drone', function (e) {
+                // Change the cursor style as a UI indicator.
+                map.getCanvas().style.cursor = 'pointer';
+
+                var coordinates = e.features[0].geometry.coordinates.slice();
+
+                while (Math.abs(e.lngLat.lng - coordinates[0]) > 180) {
+                    coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
+                }
+
+                drone_popup.setLngLat(coordinates)
+                    .setHTML("<div class='popup-drone'>Drone Battery: 80%<br>Distance travelled: 12.56 KM</div>")
+                    .addTo(map);
+            });
+
+            map.on('mouseleave', 'drone', function () {
+                map.getCanvas().style.cursor = '';
+                drone_popup.remove();
+            });
+
+            // filters
+            layerNames = ["rice", "palmTree"]
+            for (i = 0; i < layerNames.length; i++) {
+                // Add checkbox and label elements for the layer.
+                layerID = layerNames[i].concat('Zone');
+                var input = document.createElement('input');
+                input.type = 'checkbox';
+                input.id = layerID;
+                input.checked = true;
+                filterGroup.appendChild(input);
+
+                var label = document.createElement('label');
+                label.setAttribute('for', layerID);
+                label.textContent = layerNames[i];
+                filterGroup.appendChild(label);
+
+                // When the checkbox changes, update the visibility of the layer.
+                input.addEventListener('change', function (e) {
+                    map.setLayoutProperty(e.target.id, 'visibility',
+                        e.target.checked ? 'visible' : 'none');
+                    console.log("Toggle " + e.target.id)
+                });
+            }
+
+        });
+    </script>
+
+</body>
+
+</html>
